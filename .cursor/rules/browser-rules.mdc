@@ -1,0 +1,32 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+
+# This is repo on Browser use, its an open source tool to automate browser task 
+# Browser internally uses Playwrite so we need to work on that too https://playwright.dev/docs/intro
+# we are going to edit it and tailor it to make it a automatic agent tool to test all features and things that are available on a website 
+# IMPORTANT: The agent should vist and test all the features available recursively.
+
+# Things to do
+1. Edit browser use agent such that it returns network data using Playwrite, and send it out. 
+2. Edit browser use to make it stream the entire activity to a client (Frame by Frame) lets take it around 15fps 
+3. Edit browser use to announce all the Features or intrative elements it discovered and recursively with a user specified depth it should traverse all features and return a GRAPH
+
+
+[server.py](mdc:server.py) will be the main entry point for the entire tester applicaion. So any client will connect to a socket via this server and interally server can use Browser use to go feature by feature and get all things tested, So even Browser use should announce what happened when a feature was intracted with. 
+
+# Code rules 
+1. Use Object orinterd progamming for easy understanding 
+2. Write comments
+3. Create model or class files if needed so, each Class can be its own seperate file inside a Folder
+
+# Framework 
+Mainly for [server.py](mdc:server.py)
+Use Fast-api with sockets and web-rpc if needed for streaming real time video of the browser in 15fps
+
+
+External docs 
+Browser use: https://github.com/browser-use/browser-use
+Playwrite: https://playwright.dev/docs/intro
