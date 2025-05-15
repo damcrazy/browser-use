@@ -1,19 +1,20 @@
 # Goal: Automates webpage scrolling with various scrolling actions and text search functionality.
 
+import asyncio
 import os
 import sys
-import asyncio
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from langchain_openai import ChatOpenAI
-from browser_use import Agent
 from dotenv import load_dotenv
 
+load_dotenv()
+
+from langchain_openai import ChatOpenAI
+
+from browser_use import Agent
 from browser_use.browser.browser import Browser, BrowserConfig
 
-# Load environment variables
-load_dotenv()
 if not os.getenv('OPENAI_API_KEY'):
 	raise ValueError('OPENAI_API_KEY is not set')
 
@@ -38,5 +39,5 @@ async def main():
 	await agent.run()
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
 	asyncio.run(main())

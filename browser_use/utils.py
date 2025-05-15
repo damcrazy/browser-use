@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import os
+import platform
 import signal
 import time
+from collections.abc import Callable, Coroutine
 from functools import wraps
 from sys import stderr
-from typing import Any, Callable, Coroutine, List, Optional, ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -27,16 +29,17 @@ class SignalHandler:
 	- Support for custom pause/resume callbacks
 	- Management of event loop state across signals
 	- Standardized handling of first and second Ctrl+C presses
+	- Cross-platform compatibility (with simplified behavior on Windows)
 	"""
 
 	def __init__(
 		self,
-		loop: Optional[asyncio.AbstractEventLoop] = None,
-		pause_callback: Optional[Callable[[], None]] = None,
-		resume_callback: Optional[Callable[[], None]] = None,
-		custom_exit_callback: Optional[Callable[[], None]] = None,
+		loop: asyncio.AbstractEventLoop | None = None,
+		pause_callback: Callable[[], None] | None = None,
+		resume_callback: Callable[[], None] | None = None,
+		custom_exit_callback: Callable[[], None] | None = None,
 		exit_on_second_int: bool = True,
-		interruptible_task_patterns: List[str] = None,
+		interruptible_task_patterns: list[str] = None,
 	):
 		"""
 		Initialize the signal handler.
@@ -56,6 +59,7 @@ class SignalHandler:
 		self.custom_exit_callback = custom_exit_callback
 		self.exit_on_second_int = exit_on_second_int
 		self.interruptible_task_patterns = interruptible_task_patterns or ['step', 'multi_act', 'get_next_action']
+		self.is_windows = platform.system() == 'Windows'
 
 		# Initialize loop state attributes
 		self._initialize_loop_state()
@@ -71,21 +75,46 @@ class SignalHandler:
 
 	def register(self) -> None:
 		"""Register signal handlers for SIGINT and SIGTERM."""
-		self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
-		self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+		try:
+			if self.is_windows:
+				# On Windows, use simple signal handling with immediate exit on Ctrl+C
+				def windows_handler(sig, frame):
+					print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
+					# Run the custom exit callback if provided
+					if self.custom_exit_callback:
+						self.custom_exit_callback()
+					os._exit(0)
+
+				self.original_sigint_handler = signal.signal(signal.SIGINT, windows_handler)
+			else:
+				# On Unix-like systems, use asyncio's signal handling for smoother experience
+				self.original_sigint_handler = self.loop.add_signal_handler(signal.SIGINT, lambda: self.sigint_handler())
+				self.original_sigterm_handler = self.loop.add_signal_handler(signal.SIGTERM, lambda: self.sigterm_handler())
+
+		except Exception:
+			# there are situations where signal handlers are not supported, e.g.
+			# - when running in a thread other than the main thread
+			# - some operating systems
+			# - inside jupyter notebooks
+			pass
 
 	def unregister(self) -> None:
 		"""Unregister signal handlers and restore original handlers if possible."""
 		try:
-			# Remove signal handlers
-			self.loop.remove_signal_handler(signal.SIGINT)
-			self.loop.remove_signal_handler(signal.SIGTERM)
+			if self.is_windows:
+				# On Windows, just restore the original SIGINT handler
+				if self.original_sigint_handler:
+					signal.signal(signal.SIGINT, self.original_sigint_handler)
+			else:
+				# On Unix-like systems, use asyncio's signal handler removal
+				self.loop.remove_signal_handler(signal.SIGINT)
+				self.loop.remove_signal_handler(signal.SIGTERM)
 
-			# Restore original handlers if available
-			if self.original_sigint_handler:
-				signal.signal(signal.SIGINT, self.original_sigint_handler)
-			if self.original_sigterm_handler:
-				signal.signal(signal.SIGTERM, self.original_sigterm_handler)
+				# Restore original handlers if available
+				if self.original_sigint_handler:
+					signal.signal(signal.SIGINT, self.original_sigint_handler)
+				if self.original_sigterm_handler:
+					signal.signal(signal.SIGTERM, self.original_sigterm_handler)
 		except Exception as e:
 			logger.warning(f'Error while unregistering signal handlers: {e}')
 
@@ -108,6 +137,30 @@ class SignalHandler:
 
 		# Force immediate exit - more reliable than sys.exit()
 		print('\n\n🛑  Got second Ctrl+C. Exiting immediately...\n', file=stderr)
+
+		# Reset terminal to a clean state by sending multiple escape sequences
+		# Order matters for terminal resets - we try different approaches
+
+		# Reset terminal modes for both stdout and stderr
+		print('\033[?25h', end='', flush=True, file=stderr)  # Show cursor
+		print('\033[?25h', end='', flush=True)  # Show cursor
+
+		# Reset text attributes and terminal modes
+		print('\033[0m', end='', flush=True, file=stderr)  # Reset text attributes
+		print('\033[0m', end='', flush=True)  # Reset text attributes
+
+		# Disable special input modes that may cause arrow keys to output control chars
+		print('\033[?1l', end='', flush=True, file=stderr)  # Reset cursor keys to normal mode
+		print('\033[?1l', end='', flush=True)  # Reset cursor keys to normal mode
+
+		# Disable bracketed paste mode
+		print('\033[?2004l', end='', flush=True, file=stderr)
+		print('\033[?2004l', end='', flush=True)
+
+		# Carriage return helps ensure a clean line
+		print('\r', end='', flush=True, file=stderr)
+		print('\r', end='', flush=True)
+
 		os._exit(0)
 
 	def sigint_handler(self) -> None:
@@ -199,7 +252,12 @@ class SignalHandler:
 		# Temporarily restore default signal handling for SIGINT
 		# This ensures KeyboardInterrupt will be raised during input()
 		original_handler = signal.getsignal(signal.SIGINT)
-		signal.signal(signal.SIGINT, signal.default_int_handler)
+		try:
+			signal.signal(signal.SIGINT, signal.default_int_handler)
+		except ValueError:
+			# we are running in a thread other than the main thread
+			# or signal handlers are not supported for some other reason
+			pass
 
 		green = '\x1b[32;1m'
 		red = '\x1b[31m'
@@ -284,4 +342,4 @@ def singleton(cls):
 
 def check_env_variables(keys: list[str], any_or_all=all) -> bool:
 	"""Check if all required environment variables are set"""
-	return any_or_all(os.getenv(key).strip() for key in keys)
+	return any_or_all(os.getenv(key, '').strip() for key in keys)

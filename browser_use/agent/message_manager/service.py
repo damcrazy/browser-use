@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Dict, List, Optional
 
 from langchain_core.messages import (
 	AIMessage,
@@ -26,9 +25,9 @@ class MessageManagerSettings(BaseModel):
 	estimated_characters_per_token: int = 3
 	image_tokens: int = 800
 	include_attributes: list[str] = []
-	message_context: Optional[str] = None
-	sensitive_data: Optional[Dict[str, str]] = None
-	available_file_paths: Optional[List[str]] = None
+	message_context: str | None = None
+	sensitive_data: dict[str, str] | None = None
+	available_file_paths: list[str] | None = None
 
 
 class MessageManager:
@@ -50,55 +49,68 @@ class MessageManager:
 
 	def _init_messages(self) -> None:
 		"""Initialize the message history with system message, context, task, and other initial messages"""
-		self._add_message_with_tokens(self.system_prompt)
+		self._add_message_with_tokens(self.system_prompt, message_type='init')
 
 		if self.settings.message_context:
 			context_message = HumanMessage(content='Context for the task' + self.settings.message_context)
-			self._add_message_with_tokens(context_message)
+			self._add_message_with_tokens(context_message, message_type='init')
 
 		task_message = HumanMessage(
 			content=f'Your ultimate task is: """{self.task}""". If you achieved your ultimate task, stop everything and use the done action in the next step to complete the task. If not, continue as usual.'
 		)
-		self._add_message_with_tokens(task_message)
+		self._add_message_with_tokens(task_message, message_type='init')
 
 		if self.settings.sensitive_data:
-			info = f'Here are placeholders for sensitve data: {list(self.settings.sensitive_data.keys())}'
-			info += 'To use them, write <secret>the placeholder name</secret>'
+			info = f'Here are placeholders for sensitive data: {list(self.settings.sensitive_data.keys())}'
+			info += '\nTo use them, write <secret>the placeholder name</secret>'
 			info_message = HumanMessage(content=info)
-			self._add_message_with_tokens(info_message)
+			self._add_message_with_tokens(info_message, message_type='init')
 
 		placeholder_message = HumanMessage(content='Example output:')
-		self._add_message_with_tokens(placeholder_message)
-
-		tool_calls = [
-			{
-				'name': 'AgentOutput',
-				'args': {
-					'current_state': {
-						'evaluation_previous_goal': 'Success - I opend the first page',
-						'memory': 'Starting with the new task. I have completed 1/10 steps',
-						'next_goal': 'Click on company a',
-					},
-					'action': [{'click_element': {'index': 0}}],
-				},
-				'id': str(self.state.tool_id),
-				'type': 'tool_call',
-			}
-		]
+		self._add_message_with_tokens(placeholder_message, message_type='init')
 
 		example_tool_call = AIMessage(
 			content='',
-			tool_calls=tool_calls,
+			tool_calls=[
+				{
+					'name': 'AgentOutput',
+					'args': {
+						'current_state': {
+							'evaluation_previous_goal': """
+							Success - I successfully clicked on the 'Apple' link from the Google Search results page, 
+							which directed me to the 'Apple' company homepage. This is a good start toward finding 
+							the best place to buy a new iPhone as the Apple website often list iPhones for sale.
+						""".strip(),
+							'memory': """
+							I searched for 'iPhone retailers' on Google. From the Google Search results page, 
+							I used the 'click_element_by_index' tool to click on element at index [45] labeled 'Best Buy' but calling 
+							the tool did not direct me to a new page. I then used the 'click_element_by_index' tool to click 
+							on element at index [82] labeled 'Apple' which redirected me to the 'Apple' company homepage. 
+							Currently at step 3/15.
+						""".strip(),
+							'next_goal': """
+							Looking at reported structure of the current page, I can see the item '[127]<h3 iPhone/>' 
+							in the content. I think this button will lead to more information and potentially prices 
+							for iPhones. I'll click on the link at index [127] using the 'click_element_by_index' 
+							tool and hope to see prices on the next page.
+						""".strip(),
+						},
+						'action': [{'click_element_by_index': {'index': 127}}],
+					},
+					'id': str(self.state.tool_id),
+					'type': 'tool_call',
+				},
+			],
 		)
-		self._add_message_with_tokens(example_tool_call)
-		self.add_tool_message(content='Browser started')
+		self._add_message_with_tokens(example_tool_call, message_type='init')
+		self.add_tool_message(content='Browser started', message_type='init')
 
 		placeholder_message = HumanMessage(content='[Your task history memory starts here]')
 		self._add_message_with_tokens(placeholder_message)
 
 		if self.settings.available_file_paths:
 			filepaths_msg = HumanMessage(content=f'Here are file paths you can use: {self.settings.available_file_paths}')
-			self._add_message_with_tokens(filepaths_msg)
+			self._add_message_with_tokens(filepaths_msg, message_type='init')
 
 	def add_new_task(self, new_task: str) -> None:
 		content = f'Your new ultimate task is: """{new_task}""". Take the previous context into account and finish your new ultimate task. '
@@ -110,8 +122,8 @@ class MessageManager:
 	def add_state_message(
 		self,
 		state: BrowserState,
-		result: Optional[List[ActionResult]] = None,
-		step_info: Optional[AgentStepInfo] = None,
+		result: list[ActionResult] | None = None,
+		step_info: AgentStepInfo | None = None,
 		use_vision=True,
 	) -> None:
 		"""Add browser state as human message"""
@@ -162,13 +174,13 @@ class MessageManager:
 		# empty tool response
 		self.add_tool_message(content='')
 
-	def add_plan(self, plan: Optional[str], position: int | None = None) -> None:
+	def add_plan(self, plan: str | None, position: int | None = None) -> None:
 		if plan:
 			msg = AIMessage(content=plan)
 			self._add_message_with_tokens(msg, position)
 
 	@time_execution_sync('--get_messages')
-	def get_messages(self) -> List[BaseMessage]:
+	def get_messages(self) -> list[BaseMessage]:
 		"""Get current message list, potentially trimmed to max tokens"""
 
 		msg = [m.message for m in self.state.history.messages]
@@ -182,7 +194,9 @@ class MessageManager:
 
 		return msg
 
-	def _add_message_with_tokens(self, message: BaseMessage, position: int | None = None) -> None:
+	def _add_message_with_tokens(
+		self, message: BaseMessage, position: int | None = None, message_type: str | None = None
+	) -> None:
 		"""Add message with token count metadata
 		position: None for last, -1 for second last, etc.
 		"""
@@ -192,7 +206,7 @@ class MessageManager:
 			message = self._filter_sensitive_data(message)
 
 		token_count = self._count_tokens(message)
-		metadata = MessageMetadata(tokens=token_count)
+		metadata = MessageMetadata(tokens=token_count, message_type=message_type)
 		self.state.history.add_message(message, metadata, position)
 
 	@time_execution_sync('--filter_sensitive_data')
@@ -202,10 +216,19 @@ class MessageManager:
 		def replace_sensitive(value: str) -> str:
 			if not self.settings.sensitive_data:
 				return value
-			for key, val in self.settings.sensitive_data.items():
-				if not val:
-					continue
+
+			# Create a dictionary with all key-value pairs from sensitive_data where value is not None or empty
+			valid_sensitive_data = {k: v for k, v in self.settings.sensitive_data.items() if v}
+
+			# If there are no valid sensitive data entries, just return the original value
+			if not valid_sensitive_data:
+				logger.warning('No valid entries found in sensitive_data dictionary')
+				return value
+
+			# Replace all valid sensitive data values with their placeholder tags
+			for key, val in valid_sensitive_data.items():
 				value = value.replace(val, f'<secret>{key}</secret>')
+
 			return value
 
 		if isinstance(message.content, str):
@@ -299,8 +322,8 @@ class MessageManager:
 		"""Remove last state message from history"""
 		self.state.history.remove_last_state_message()
 
-	def add_tool_message(self, content: str) -> None:
+	def add_tool_message(self, content: str, message_type: str | None = None) -> None:
 		"""Add tool message to history"""
 		msg = ToolMessage(content=content, tool_call_id=str(self.state.tool_id))
 		self.state.tool_id += 1
-		self._add_message_with_tokens(msg)
+		self._add_message_with_tokens(msg, message_type=message_type)

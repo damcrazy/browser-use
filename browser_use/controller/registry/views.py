@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Type
+from collections.abc import Callable
 
 from playwright.async_api import Page
 from pydantic import BaseModel, ConfigDict
@@ -10,7 +10,7 @@ class RegisteredAction(BaseModel):
 	name: str
 	description: str
 	function: Callable
-	param_model: Type[BaseModel]
+	param_model: type[BaseModel]
 
 	# filters: provide specific domains or a function to determine whether the action should be available on the given page or not
 	domains: list[str] | None = None  # e.g. ['*.google.com', 'www.bing.com', 'yahoo.*]
@@ -26,7 +26,7 @@ class RegisteredAction(BaseModel):
 		s += str(
 			{
 				k: {sub_k: sub_v for sub_k, sub_v in v.items() if sub_k not in skip_keys}
-				for k, v in self.param_model.schema()['properties'].items()
+				for k, v in self.param_model.model_json_schema()['properties'].items()
 			}
 		)
 		s += '}'
@@ -68,7 +68,7 @@ class ActionModel(BaseModel):
 class ActionRegistry(BaseModel):
 	"""Model representing the action registry"""
 
-	actions: Dict[str, RegisteredAction] = {}
+	actions: dict[str, RegisteredAction] = {}
 
 	@staticmethod
 	def _match_domains(domains: list[str] | None, url: str) -> bool:

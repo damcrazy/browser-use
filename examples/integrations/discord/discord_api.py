@@ -1,12 +1,18 @@
+import os
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import discord
 from discord.ext import commands
-from dotenv import load_dotenv
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from browser_use import BrowserConfig
 from browser_use.agent.service import Agent, Browser
-
-load_dotenv()
 
 
 class DiscordBot(commands.Bot):
@@ -55,9 +61,7 @@ class DiscordBot(commands.Bot):
 		intents.members = True  # Enable members intent for user info
 
 		# Initialize the bot with a command prefix and intents.
-		super().__init__(
-			command_prefix='!', intents=intents
-		)  # You may not need prefix, just here for flexibility
+		super().__init__(command_prefix='!', intents=intents)  # You may not need prefix, just here for flexibility
 
 		# self.tree = app_commands.CommandTree(self) # Initialize command tree for slash commands.
 
@@ -86,12 +90,8 @@ class DiscordBot(commands.Bot):
 						print(f'Error sending start message: {e}')
 
 				try:
-					agent_message = await self.run_agent(
-						message.content.replace(f'{self.prefix} ', '').strip()
-					)
-					await message.channel.send(
-						content=f'{agent_message}', reference=message, mention_author=True
-					)
+					agent_message = await self.run_agent(message.content.replace(f'{self.prefix} ', '').strip())
+					await message.channel.send(content=f'{agent_message}', reference=message, mention_author=True)
 				except Exception as e:
 					await message.channel.send(
 						content=f'Error during task execution: {str(e)}',
