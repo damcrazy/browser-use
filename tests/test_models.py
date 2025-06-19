@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 import httpx
@@ -11,32 +10,28 @@ from pydantic import SecretStr
 
 from browser_use.agent.service import Agent
 from browser_use.agent.views import AgentHistoryList
-from browser_use.browser.browser import Browser, BrowserConfig
+from browser_use.browser import BrowserProfile, BrowserSession
 
-
-@pytest.fixture(scope='function')
-def event_loop():
-	"""Create an instance of the default event loop for each test case."""
-	loop = asyncio.get_event_loop_policy().new_event_loop()
-	yield loop
-	loop.close()
-
-
-@pytest.fixture(scope='function')
-async def browser(event_loop):
-	browser_instance = Browser(
-		config=BrowserConfig(
-			headless=True,
-		)
-	)
-	yield browser_instance
-	await browser_instance.close()
+# Set env vars for testing
+os.environ.setdefault('SKIP_LLM_API_KEY_VERIFICATION', 'true')
+os.environ.setdefault('AZURE_OPENAI_ENDPOINT', 'https://test.openai.azure.com')
+os.environ.setdefault('AZURE_OPENAI_KEY', 'test-key')
+os.environ.setdefault('ANTHROPIC_API_KEY', 'test-key')
+os.environ.setdefault('GOOGLE_API_KEY', 'test-key')
+os.environ.setdefault('DEEPSEEK_API_KEY', 'test-key')
+os.environ.setdefault('OPENAI_API_KEY', 'test-key')
 
 
 @pytest.fixture
-async def context(browser):
-	async with await browser.new_context() as context:
-		yield context
+async def browser_session():
+	browser_session = BrowserSession(
+		browser_profile=BrowserProfile(
+			headless=True,
+		)
+	)
+	await browser_session.start()
+	yield browser_session
+	await browser_session.stop()
 
 
 api_key_gemini = SecretStr(os.getenv('GOOGLE_API_KEY') or '')
@@ -105,8 +100,7 @@ async def llm(request):
 	return request.param
 
 
-@pytest.mark.asyncio
-async def test_model_search(llm, context):
+async def test_model_search(llm, browser_session):
 	"""Test 'Search Google' action"""
 	model_name = llm.model if hasattr(llm, 'model') else llm.model_name
 	print(f'\nTesting model: {model_name}')
@@ -134,7 +128,7 @@ async def test_model_search(llm, context):
 	agent = Agent(
 		task="Search Google for 'elon musk' then click on the first result and scroll down.",
 		llm=llm,
-		browser_context=context,
+		browser_session=browser_session,
 		max_failures=2,
 		use_vision=use_vision,
 	)

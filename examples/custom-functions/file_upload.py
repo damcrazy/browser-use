@@ -15,41 +15,31 @@ from langchain_openai import ChatOpenAI
 
 from browser_use import Agent, Controller
 from browser_use.agent.views import ActionResult
-from browser_use.browser.browser import Browser, BrowserConfig
-from browser_use.browser.context import BrowserContext
+from browser_use.browser import BrowserSession
 
 logger = logging.getLogger(__name__)
 
-# Initialize controller first
-browser = Browser(
-	config=BrowserConfig(
-		headless=False,
-		browser_binary_path='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-	)
-)
 controller = Controller()
 
 
 @controller.action(
 	'Upload file to interactive element with file path ',
 )
-async def upload_file(index: int, path: str, browser: BrowserContext, available_file_paths: list[str]):
+async def upload_file(index: int, path: str, browser_session: BrowserSession, available_file_paths: list[str]):
 	if path not in available_file_paths:
 		return ActionResult(error=f'File path {path} is not available')
 
 	if not os.path.exists(path):
 		return ActionResult(error=f'File {path} does not exist')
 
-	dom_el = await browser.get_dom_element_by_index(index)
-
-	file_upload_dom_el = dom_el.get_file_upload_element()
+	file_upload_dom_el = await browser_session.find_file_upload_element_by_index(index, max_height=3, max_descendant_depth=3)
 
 	if file_upload_dom_el is None:
 		msg = f'No file upload element found at index {index}'
 		logger.info(msg)
 		return ActionResult(error=msg)
 
-	file_upload_el = await browser.get_locate_element(file_upload_dom_el)
+	file_upload_el = await browser_session.get_locate_element(file_upload_dom_el)
 
 	if file_upload_el is None:
 		msg = f'No file upload element found at index {index}'
@@ -89,6 +79,7 @@ def create_file(file_type: str = 'txt'):
 
 async def main():
 	task = 'Go to https://kzmpmkh2zfk1ojnpxfn1.lite.vusercontent.net/ and - read the file content and upload them to fields'
+	task = 'Go to https://www.freepdfconvert.com/,  upload the file tmp.pdf into the field choose a file - dont click the fileupload button'
 
 	available_file_paths = [create_file('txt'), create_file('pdf'), create_file('csv')]
 
@@ -97,13 +88,10 @@ async def main():
 		task=task,
 		llm=model,
 		controller=controller,
-		browser=browser,
 		available_file_paths=available_file_paths,
 	)
 
 	await agent.run()
-
-	await browser.close()
 
 	input('Press Enter to close...')
 

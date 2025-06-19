@@ -1,10 +1,10 @@
 import logging
 import os
-import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
 from posthog import Posthog
+from uuid_extensions import uuid7str
 
 from browser_use.telemetry.views import BaseTelemetryEvent
 from browser_use.utils import singleton
@@ -72,8 +72,6 @@ class ProductTelemetry:
 		if self._posthog_client is None:
 			return
 
-		if self.debug_logging:
-			logger.debug(f'Telemetry event: {event.name} {event.properties}')
 		self._direct_capture(event)
 
 	def _direct_capture(self, event: BaseTelemetryEvent) -> None:
@@ -113,7 +111,7 @@ class ProductTelemetry:
 			if not os.path.exists(self.USER_ID_PATH):
 				os.makedirs(os.path.dirname(self.USER_ID_PATH), exist_ok=True)
 				with open(self.USER_ID_PATH, 'w') as f:
-					new_user_id = str(uuid.uuid4())
+					new_user_id = uuid7str()
 					f.write(new_user_id)
 				self._curr_user_id = new_user_id
 			else:
